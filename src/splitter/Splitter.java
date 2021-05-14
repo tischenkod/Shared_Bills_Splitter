@@ -1,22 +1,31 @@
 package splitter;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Stream;
 
 public class Splitter {
-    final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
-    final String borrowRegexp = dateRegexp + "borrow [a-zA-Z]+ [a-zA-Z]+ \\d+";
-    final String repayRegexp = dateRegexp + "repay [a-zA-Z]+ [a-zA-Z]+ \\d+";
-    final String balanceRegexp = dateRegexp + "balance( (open|close))?";
+    private static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
+    private static final String borrowRegexp = dateRegexp + "borrow [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
+    private static final String repayRegexp = dateRegexp + "repay [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
+    private static final String balanceRegexp = dateRegexp + "balance( (open|close))?";
+    private static final String groupNameRegexp = "[A-Z]+";
+    private static final String groupCreateRegexp = "group create " + groupNameRegexp + " \\([a-zA-Z]+(, [a-zA-Z]+)*\\)";
+    private static final String groupShowRegexp = "group show " + groupNameRegexp;
+    private static final String purchaseRegexp = dateRegexp + "purchase [a-zA-Z]+ [a-z]+ [1-9]\\d*(.\\d+)? \\([A-Z]+\\)";
 
     List<Payment> payments;
     List<Person> persons;
+    List<Group> groups;
+
 
     public Splitter() {
         payments = new LinkedList<>();
         persons = new LinkedList<>();
+        groups = new LinkedList<>();
     }
 
     public void run() {
@@ -39,7 +48,6 @@ public class Splitter {
     }
 
     private Result process(String command) {
-
         if (command.contains("borrow")) {
             return borrow(command);
         }
@@ -49,7 +57,112 @@ public class Splitter {
         if (command.contains("balance")) {
             return balance(command);
         }
+        if (command.contains("group create")) {
+            return groupCreate(command);
+        }
+        if (command.contains("group show")) {
+            return groupShow(command);
+        }
+        if (command.contains("purchase")) {
+            return purchase(command);
+        }
         return Result.UNKNOWN_COMMAND;
+    }
+
+    private Result groupShow(String command) {
+        if (!command.matches(groupShowRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+        Group toShow = findGroup(command.split(" ")[2]);
+        if (toShow == null) {
+            System.out.println("Unknown group");
+        } else {
+            toShow.stream().sorted().forEachOrdered(System.out::println);
+        }
+        return Result.OK;
+    }
+
+    private Result purchase(String command) {
+        if (!command.matches(purchaseRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+
+        LocalDate date;
+        int payerPos;
+
+        if (parts[1].equals("purchase")) {
+            payerPos = 2;
+            try {
+                date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
+            } catch (Exception e) {
+                return Result.ILLEGAL_ARGUMENT;
+            }
+        } else {
+            payerPos = 1;
+            date = LocalDate.now();
+        }
+        Person payer = getPerson(parts[payerPos]);
+
+        BigDecimal amount;
+        try {
+            amount = new BigDecimal(parts[payerPos + 2]).setScale(2, RoundingMode.DOWN);
+            if (amount.equals(BigDecimal.ZERO)) {
+                return Result.ILLEGAL_ARGUMENT;
+            }
+        } catch (Exception e) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+
+        Group targetGroup = findGroup(parts[payerPos + 3].replaceAll("[()]", ""));
+        if (targetGroup == null) {
+            System.out.println("Unknown group");
+            return Result.OK;
+        }
+
+        BigDecimal divisor = new BigDecimal(targetGroup.size());
+        BigDecimal sumPerPerson = amount.divide(divisor, RoundingMode.DOWN);
+        BigDecimal remainder = amount.subtract(sumPerPerson.multiply(divisor));
+
+        final BigDecimal oneCent = new BigDecimal("0.01");
+
+        for (Person member: targetGroup) {
+            if (!payer.equals(member)) {
+                if (remainder.compareTo(BigDecimal.ZERO) == 0){
+                    payments.add(new Payment(date, payer, member, sumPerPerson));
+                } else {
+                    remainder = remainder.subtract(oneCent);
+                    payments.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
+                }
+
+            }
+        }
+
+        return Result.OK;
+    }
+
+    private Group findGroup(String name) {
+        for (Group group: groups) {
+            if (group.name.equals(name)) {
+                return group;
+            }
+        }
+        return null;
+    }
+
+    private Result groupCreate(String command) {
+        if (!command.matches(groupCreateRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+        Group group = new Group(parts[2]);
+        groups.add(group);
+        for (int i = 3; i < parts.length; i++) {
+            int beginShift = i == 3 ? 1 : 0;
+            int endShift = 1;//i == parts.length - 1 ? 1 : 0;
+            group.add(getPerson(parts[i].substring(beginShift, parts[i].length() - endShift)));
+        }
+        return Result.OK;
     }
 
     private Result balance(String command) {
@@ -79,24 +192,31 @@ public class Splitter {
         }
 
         LocalDate finalDate = date;
-        Map<PersonPair, Integer> balanceMap = new HashMap<>();
+        Map<PersonPair, BigDecimal> balanceMap = new HashMap<>();
 
         payments.stream()
                 .filter(p -> !p.date.isAfter(finalDate))
-                .forEach(payment -> balanceMap.compute(payment.pair,
-                        (k, v) -> v == null ? payment.amount : v + payment.amount));
+                .forEach(payment -> balanceMap.compute(new PersonPair(payment.pair),
+                        (k, v) -> v == null ? payment.amount : payment.amount.add(v)));
+
+        for (Map.Entry<PersonPair, BigDecimal> entry: balanceMap.entrySet()) {
+            if (entry.getValue().compareTo(BigDecimal.ZERO) < 0) {
+                entry.getKey().swap();
+                entry.setValue(entry.getValue().negate());
+            }
+        }
 
         if (balanceMap.entrySet()
-                .stream().noneMatch(entry -> entry.getValue() != 0)) {
+                .stream().allMatch(entry -> entry.getValue().compareTo(BigDecimal.ZERO) == 0)) {
             System.out.println("No repayments need");
         } else {
             balanceMap.entrySet()
                     .stream()
-                    .filter(entry -> entry.getValue() != 0)
+                    .filter(entry -> entry.getValue().compareTo(BigDecimal.ZERO) != 0)
                     .sorted(Map.Entry.comparingByKey())
-                    .forEachOrdered(es -> System.out.println(es.getValue() > 0 ?
-                            es.getKey().receiver.toString() + " owes " + es.getKey().sender + " " + es.getValue() :
-                            es.getKey().sender + " owes " + es.getKey().receiver + " " + -es.getValue()));
+                    .forEachOrdered(es -> System.out.println(es.getValue().compareTo(BigDecimal.ZERO) > 0 ?
+                            es.getKey().receiver.toString() + " owes " + es.getKey().sender + " " + es.getValue().setScale(2, RoundingMode.CEILING) :
+                            es.getKey().sender + " owes " + es.getKey().receiver + " " + es.getValue().negate().setScale(2, RoundingMode.CEILING)));
         }
         return Result.OK;
     }
@@ -131,10 +251,10 @@ public class Splitter {
             return Result.ILLEGAL_ARGUMENT;
         }
 
-        int amount;
+        BigDecimal amount;
         try {
-            amount = Integer.parseInt(parts[personIndex + 2]);
-            if (amount == 0) {
+            amount = new BigDecimal(parts[personIndex + 2]).setScale(2, RoundingMode.DOWN);
+            if (amount.equals(BigDecimal.ZERO)) {
                 return Result.ILLEGAL_ARGUMENT;
             }
         } catch (Exception e) {
@@ -157,23 +277,30 @@ public class Splitter {
         return createPayment(command, Direction.BORROW);
     }
 
-    private Person getPerson(String name) {
+    private Person findPerson(String name) {
         Optional<Person> result = persons.stream()
                 .filter(person -> person.name.equals(name))
                 .findAny();
-        if (result.isEmpty()) {
+        return result.orElse(null);
+    }
+
+    private Person getPerson(String name) {
+        Person result = findPerson(name);
+        if (result == null) {
             Person person = new Person(name);
             persons.add(person);
             return person;
         }
-        return result.get();
+        return result;
     }
 
     private void help() {
         System.out.println("balance\n" +
                 "borrow\n" +
                 "exit\n" +
+                "group,\n" +
                 "help\n" +
+                "purchase\n" +
                 "repay");
     }
 }

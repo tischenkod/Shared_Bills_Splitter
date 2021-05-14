@@ -7,6 +7,11 @@ public class PersonPair implements Comparable<PersonPair>{
     Person sender;
     Person receiver;
 
+    public PersonPair(PersonPair pair) {
+        sender = pair.sender;
+        receiver = pair.receiver;
+    }
+
     public Person getSender() {
         return sender;
     }
@@ -38,4 +43,9 @@ public class PersonPair implements Comparable<PersonPair>{
         return Objects.hash(sender, receiver);
     }
 
+    public void swap() {
+        Person temp = sender;
+        sender = receiver;
+        receiver = temp;
+    }
 }
