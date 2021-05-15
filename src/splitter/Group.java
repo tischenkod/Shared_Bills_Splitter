@@ -30,4 +30,16 @@ public class Group implements Iterable<Person>{
     public Stream<Person> stream() {
         return members.stream();
     }
+
+    public void addAll(Collection<Person> c) {
+        members.addAll(c);
+    }
+
+    public void removeAll(Collection<Person> c) {
+        members.removeAll(c);
+    }
+
+    public boolean isEmpty() {
+        return members.isEmpty();
+    }
 }

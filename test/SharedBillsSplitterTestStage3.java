@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Collectors;
 
-public class SharedBillsSplitterTestStage2 extends StageTest {
+public class SharedBillsSplitterTestStage3 extends StageTest {
 
     static {
         InfiniteLoopDetector.setWorking(false);
@@ -119,9 +119,7 @@ public class SharedBillsSplitterTestStage2 extends StageTest {
                             continue;
                         }
                         Commands command;
-                        BigDecimal amount = new BigDecimal(
-                            String.format("%d.%d", random.nextInt(200), random.nextInt(99)));
-
+                        BigDecimal amount = new BigDecimal(String.format("%d.%d", random.nextInt(200), random.nextInt(99)));
                         if (random.nextBoolean()) {
                             command = Commands.borrow;
                             if (personFrom.equals(keyPerson)) {
@@ -165,13 +163,11 @@ public class SharedBillsSplitterTestStage2 extends StageTest {
                     TestedProgram main = new TestedProgram();
                     main.start();
                     if (!main.execute("group create lowerCaseText").contains(ILLEGAL_COMMAND_ARGUMENTS)) {
-                        return CheckResult.wrong(String.format(
-                            "Group name must be UPPERCASE, otherwise \"%s\" should be printed",
+                        return CheckResult.wrong(String.format("Group name must be UPPERCASE, otherwise \"%s\" should be printed",
                                 ILLEGAL_COMMAND_ARGUMENTS));
                     }
                     if (!main.execute("group show NOTFOUNDGROUP").contains(UNKNOWN_GROUP)) {
-                        return CheckResult.wrong(
-                            "It should be printed \"%s\" if the group have not been created yet");
+                        return CheckResult.wrong("It should be printed \"%s\" if the group have not been created yet");
                     }
 
                     main.execute("group create BOYS (Elon, Bob, Chuck)");
@@ -235,8 +231,63 @@ public class SharedBillsSplitterTestStage2 extends StageTest {
                             "Elon owes Diana 5.21"))
                         return CheckResult.wrong("Output should be the same as in example");
                     return CheckResult.correct();
-                })
+                }),
 
+                new TestCase().setDynamicTesting(() -> {
+                    TestedProgram main = new TestedProgram();
+                    main.start();
+                    main.execute("group create GIRLS (Ann, Diana)");
+                    main.execute("group create TEAM (+Bob, GIRLS, -Frank, Chuck)");
+                    String groupResult = main.execute("group show TEAM");
+                    if (!equalsByLines(groupResult, "" +
+                            "Ann\n" +
+                            "Bob\n" +
+                            "Chuck\n" +
+                            "Diana")) {
+                        return CheckResult.wrong("Program should include Bob, Chuck and persons from GIRLS, also Frank should be excluded");
+                    }
+                    return CheckResult.correct();
+                }),
+
+                new TestCase().setDynamicTesting(() -> {
+                    TestedProgram main = new TestedProgram();
+                    main.start();
+                    main.execute("group create GIRLS (Ann, Diana)");
+                    main.execute("group create TEAM (+Bob, GIRLS, -Frank, Chuck)");
+                    main.execute("2020.10.20 purchase Diana flowers 15.65 (TEAM, Elon, -GIRLS)");
+                    main.execute("2020.10.21 purchase Elon ChuckBirthdayGift 20.99 (TEAM, -Chuck)");
+                    String balanceResult = main.execute("balance close");
+                    if (!equalsByLines(balanceResult, "" +
+                            "Ann owes Elon 7.00\n" +
+                            "Bob owes Diana 5.22\n" +
+                            "Bob owes Elon 7.00\n" +
+                            "Chuck owes Diana 5.22\n" +
+                            "Diana owes Elon 1.78")) {
+                        return CheckResult.wrong("Program should split flowers bill on TEAM with Elon without GIRLS");
+                    }
+                    return CheckResult.correct();
+                }),
+
+                new TestCase().setDynamicTesting(() -> {
+                    TestedProgram main = new TestedProgram();
+                    main.start();
+                    main.execute("group create SOMEGROUP (Bob)");
+                    main.execute("group create GIRLS (Ann, Diana)");
+                    main.execute("group create BOYS (Bob, Chuck, Elon)");
+                    main.execute("group add SOMEGROUP (GIRLS, Frank)");
+                    main.execute("group remove SOMEGROUP (-BOYS, Bob, +Frank)");
+                    String groupResult = main.execute("group show SOMEGROUP");
+                    if (!equalsByLines(groupResult, "Ann\n" +
+                            "Bob\n" +
+                            "Diana")) {
+                        return CheckResult.wrong("First of all program should collect persons from brackets:" +
+                                "At first collect all additions, and then remove all persons to delete." +
+                                "eg. group <some group command> GROUP (-BOYS, Bob, +Frank): " +
+                                "at first program should collect Bob and Frank" +
+                                "and then remove all persons from BOYS");
+                    }
+                    return CheckResult.correct();
+                })
 
         );
     }
@@ -261,8 +312,7 @@ public class SharedBillsSplitterTestStage2 extends StageTest {
             Commands command = Commands.valueOf(reply);;
         } catch (IllegalArgumentException e) {
             if (!reply.toLowerCase().startsWith(UNKNOWN_COMMAND.toLowerCase())) {
-                return CheckResult.wrong(String.format(
-                    "For unknown command output should start with: %s", UNKNOWN_COMMAND));
+                return CheckResult.wrong(String.format("For unknown command output should starts with: %s", UNKNOWN_COMMAND));
             }
         }
         return CheckResult.correct();

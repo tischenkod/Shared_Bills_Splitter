@@ -1,7 +1,6 @@
 package splitter;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -13,9 +12,10 @@ public class Splitter {
     private static final String repayRegexp = dateRegexp + "repay [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
     private static final String balanceRegexp = dateRegexp + "balance( (open|close))?";
     private static final String groupNameRegexp = "[A-Z]+";
-    private static final String groupCreateRegexp = "group create " + groupNameRegexp + " \\([a-zA-Z]+(, [a-zA-Z]+)*\\)";
+    private static final String groupItemRegexp = "[+-]?[a-zA-Z]+";
+    private static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + " \\(" + groupItemRegexp + "(, " + groupItemRegexp + ")*\\)";
     private static final String groupShowRegexp = "group show " + groupNameRegexp;
-    private static final String purchaseRegexp = dateRegexp + "purchase [a-zA-Z]+ [a-z]+ [1-9]\\d*(.\\d+)? \\([A-Z]+\\)";
+    private static final String purchaseRegexp = dateRegexp + "purchase [a-zA-Z]+ [a-zA-Z]+ [1-9]\\d*(.\\d+)? \\(" + groupItemRegexp + "(, " + groupItemRegexp + ")*\\)";
 
     List<Payment> payments;
     List<Person> persons;
@@ -57,11 +57,11 @@ public class Splitter {
         if (command.contains("balance")) {
             return balance(command);
         }
-        if (command.contains("group create")) {
-            return groupCreate(command);
-        }
         if (command.contains("group show")) {
             return groupShow(command);
+        }
+        if (command.contains("group")) {
+            return groupModify(command);
         }
         if (command.contains("purchase")) {
             return purchase(command);
@@ -114,19 +114,19 @@ public class Splitter {
             return Result.ILLEGAL_ARGUMENT;
         }
 
-        Group targetGroup = findGroup(parts[payerPos + 3].replaceAll("[()]", ""));
-        if (targetGroup == null) {
-            System.out.println("Unknown group");
+        Set<Person> targetSet = toActionSet(Arrays.copyOfRange(parts, payerPos + 3, parts.length));
+        if (targetSet == null) {
             return Result.OK;
         }
 
-        BigDecimal divisor = new BigDecimal(targetGroup.size());
+        BigDecimal divisor = new BigDecimal(targetSet.size());
+        targetSet.remove(payer);
         BigDecimal sumPerPerson = amount.divide(divisor, RoundingMode.DOWN);
         BigDecimal remainder = amount.subtract(sumPerPerson.multiply(divisor));
 
         final BigDecimal oneCent = new BigDecimal("0.01");
 
-        for (Person member: targetGroup) {
+        for (Person member: targetSet) {
             if (!payer.equals(member)) {
                 if (remainder.compareTo(BigDecimal.ZERO) == 0){
                     payments.add(new Payment(date, payer, member, sumPerPerson));
@@ -150,19 +150,81 @@ public class Splitter {
         return null;
     }
 
-    private Result groupCreate(String command) {
-        if (!command.matches(groupCreateRegexp)) {
+    private Result groupModify(String command) {
+        if (!command.matches(groupModRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
         String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
-        Group group = new Group(parts[2]);
-        groups.add(group);
-        for (int i = 3; i < parts.length; i++) {
-            int beginShift = i == 3 ? 1 : 0;
-            int endShift = 1;//i == parts.length - 1 ? 1 : 0;
-            group.add(getPerson(parts[i].substring(beginShift, parts[i].length() - endShift)));
+        Group targetGroup;
+        targetGroup = findGroup(parts[2]);
+
+        Set<Person> actionSet = toActionSet(Arrays.copyOfRange(parts, 3, parts.length));
+        if (actionSet == null) {
+            return Result.OK;
         }
+
+        switch (parts[1]) {
+            case "create":
+                if (targetGroup != null) {
+                    System.out.println("Group " + parts[2] + " already exists");
+                    return Result.OK;
+                }
+                targetGroup = new Group(parts[2]);
+                groups.add(targetGroup);
+                targetGroup.addAll(actionSet);
+                break;
+            case "add":
+                if (targetGroup == null) {
+                    System.out.println("Group " + parts[2] + " not found");
+                    return Result.OK;
+                }
+                targetGroup.addAll(actionSet);
+                break;
+            case "remove":
+                if (targetGroup == null) {
+                    System.out.println("Group " + parts[2] + " not found");
+                    return Result.OK;
+                }
+                targetGroup.removeAll(actionSet);
+                if (targetGroup.isEmpty()) {
+                    groups.remove(targetGroup);
+                }
+        }
+
+
         return Result.OK;
+    }
+
+    private Set<Person> toActionSet(String[] tokens) {
+        Set<Person> resultSet = new TreeSet<>();
+        Set<Person> skipSet = new TreeSet<>();
+
+        for (int i = 0; i < tokens.length; i++) {
+            int beginShift = i == 0 ? 1 : 0;
+            String name = tokens[i].substring(beginShift, tokens[i].length() - 1);
+            char prefix;
+            if (name.charAt(0) == '-') {
+                prefix = '-';
+                name = name.substring(1);
+            } else if (name.charAt(0) == '+') {
+                prefix = '+';
+                name = name.substring(1);
+            } else {
+                prefix = '+';
+            }
+            if (name.matches(groupNameRegexp)) {
+                Group groupItem = findGroup(name);
+                if (groupItem == null) {
+                    System.out.println("Group " + name + " not found");
+                    return null;
+                }
+                (prefix == '+' ? resultSet : skipSet).addAll(groupItem.members);
+            } else {
+                (prefix == '+' ? resultSet : skipSet).add(getPerson(name));
+            }
+        }
+        resultSet.removeAll(skipSet);
+        return resultSet;
     }
 
     private Result balance(String command) {
@@ -174,7 +236,7 @@ public class Splitter {
         int openCloseIndex;
         LocalDate date;
 
-        if (parts[1].equals("balance")) {
+        if (parts.length > 1 && parts[1].equals("balance")) {
             openCloseIndex = 2;
             try {
                 date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
