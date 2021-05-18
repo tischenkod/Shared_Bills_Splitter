@@ -376,10 +376,13 @@ public class Splitter {
     private void help() {
         System.out.println("balance\n" +
                 "borrow\n" +
+                "cashBack\n" +
                 "exit\n" +
-                "group,\n" +
+                "group\n" +
                 "help\n" +
                 "purchase\n" +
-                "repay");
+                "repay\n" +
+                "secretSanta\n" +
+                "writeOff");
     }
 }

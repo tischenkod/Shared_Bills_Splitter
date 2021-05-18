@@ -9,6 +9,12 @@ public class PaymentSummary {
     Person receiver;
     BigDecimal amount;
 
+    public PaymentSummary(Person sender, Person receiver, BigDecimal amount) {
+        this.sender = sender;
+        this.receiver = receiver;
+        this.amount = amount;
+    }
+
     public PaymentSummary() {
     }
 
