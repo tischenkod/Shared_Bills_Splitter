@@ -1,5 +1,6 @@
-package splitter;
+package splitter.entities;
 
+import java.security.InvalidParameterException;
 import java.util.Comparator;
 import java.util.Objects;
 
@@ -7,10 +8,10 @@ public class PersonPair implements Comparable<PersonPair>{
     Person sender;
     Person receiver;
 
-    public PersonPair(PersonPair pair) {
-        sender = pair.sender;
-        receiver = pair.receiver;
-    }
+//    public PersonPair(PersonPair pair) {
+//        sender = pair.sender;
+//        receiver = pair.receiver;
+//    }
 
     public Person getSender() {
         return sender;
@@ -21,6 +22,9 @@ public class PersonPair implements Comparable<PersonPair>{
     }
 
     public PersonPair(Person sender, Person receiver) {
+        if (sender == null || receiver == null) {
+            throw new InvalidParameterException("Argument can not be null");
+        }
         this.sender = sender;
         this.receiver = receiver;
     }

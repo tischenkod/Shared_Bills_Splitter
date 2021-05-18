@@ -1,21 +1,35 @@
-package splitter;
+package splitter.entities;
 
+import javax.persistence.*;
 import java.util.*;
 import java.util.stream.Stream;
 
+@Entity(name = "groups")
 public class Group implements Iterable<Person>{
+
+    @Id
+    @GeneratedValue
+    @Column(name = "group_id")
+    int id;
+
+    @Column(name = "group_name")
     String name;
-    List<Person> members;
+
+    @ManyToMany
+    @JoinTable(name = "membership",
+            joinColumns = @JoinColumn(name = "group_id"),
+            inverseJoinColumns = @JoinColumn(name = "person_id"))
+    List<Person> members = new LinkedList<>();
+
+    public Group() {
+    }
 
     public Group(String name) {
         this.name = name;
-        members = new LinkedList<>();
-
     }
 
     public void add(Person member) {
         members.add(member);
-        Collections.sort(members);
     }
 
     public int size() {
@@ -41,5 +55,9 @@ public class Group implements Iterable<Person>{
 
     public boolean isEmpty() {
         return members.isEmpty();
+    }
+
+    public List<Person> getMembers() {
+        return members;
     }
 }

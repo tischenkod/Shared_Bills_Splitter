@@ -1,20 +1,40 @@
-package splitter;
+package splitter.entities;
 
+import javax.persistence.*;
 import java.security.InvalidParameterException;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Objects;
 
+@Entity
 public class Person implements Comparable<Person>{
-    static int nextId = 0;
-
+    @Id
+    @GeneratedValue
+    @Column(name = "person_id")
     int id;
+
+    @Column(nullable = false, unique = true)
     String name;
+
+    @ManyToMany(mappedBy = "members")
+    List<Group> groups = new LinkedList<>();
 
     public Person(String name) {
         if (name == null) {
             throw new InvalidParameterException();
         }
-        id = nextId++;
         this.name = name;
+    }
+
+    public Person() {
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
     }
 
     @Override

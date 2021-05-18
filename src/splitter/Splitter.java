@@ -1,11 +1,22 @@
 package splitter;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import splitter.entities.Group;
+import splitter.entities.Payment;
+import splitter.entities.Person;
+import splitter.entities.PersonPair;
+import splitter.services.GroupService;
+import splitter.services.PaymentService;
+import splitter.services.PersonService;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+@Component
 public class Splitter {
     private static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
     private static final String borrowRegexp = dateRegexp + "borrow [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
@@ -17,15 +28,17 @@ public class Splitter {
     private static final String groupShowRegexp = "group show " + groupNameRegexp;
     private static final String purchaseRegexp = dateRegexp + "purchase [a-zA-Z]+ [a-zA-Z]+ [1-9]\\d*(.\\d+)? \\(" + groupItemRegexp + "(, " + groupItemRegexp + ")*\\)";
 
-    List<Payment> payments;
-    List<Person> persons;
-    List<Group> groups;
+    @Autowired
+    PaymentService paymentsService;
+
+    @Autowired
+    PersonService personsService;
+
+    @Autowired
+    GroupService groupsService;
 
 
     public Splitter() {
-        payments = new LinkedList<>();
-        persons = new LinkedList<>();
-        groups = new LinkedList<>();
     }
 
     public void run() {
@@ -73,7 +86,7 @@ public class Splitter {
         if (!command.matches(groupShowRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
-        Group toShow = findGroup(command.split(" ")[2]);
+        Group toShow = groupsService.findGroup(command.split(" ")[2]);
         if (toShow == null) {
             System.out.println("Unknown group");
         } else {
@@ -102,7 +115,8 @@ public class Splitter {
             payerPos = 1;
             date = LocalDate.now();
         }
-        Person payer = getPerson(parts[payerPos]);
+        Person payer = personsService.getPerson(parts[payerPos]);
+//                getPerson(parts[payerPos]);
 
         BigDecimal amount;
         try {
@@ -129,10 +143,10 @@ public class Splitter {
         for (Person member: targetSet) {
             if (!payer.equals(member)) {
                 if (remainder.compareTo(BigDecimal.ZERO) == 0){
-                    payments.add(new Payment(date, payer, member, sumPerPerson));
+                    paymentsService.add(new Payment(date, payer, member, sumPerPerson));
                 } else {
                     remainder = remainder.subtract(oneCent);
-                    payments.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
+                    paymentsService.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
                 }
 
             }
@@ -141,14 +155,14 @@ public class Splitter {
         return Result.OK;
     }
 
-    private Group findGroup(String name) {
-        for (Group group: groups) {
-            if (group.name.equals(name)) {
-                return group;
-            }
-        }
-        return null;
-    }
+//    private Group findGroup(String name) {
+//        for (Group group: groups) {
+//            if (group.name.equals(name)) {
+//                return group;
+//            }
+//        }
+//        return null;
+//    }
 
     private Result groupModify(String command) {
         if (!command.matches(groupModRegexp)) {
@@ -156,7 +170,7 @@ public class Splitter {
         }
         String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
         Group targetGroup;
-        targetGroup = findGroup(parts[2]);
+        targetGroup = groupsService.findGroup(parts[2]);
 
         Set<Person> actionSet = toActionSet(Arrays.copyOfRange(parts, 3, parts.length));
         if (actionSet == null) {
@@ -170,7 +184,7 @@ public class Splitter {
                     return Result.OK;
                 }
                 targetGroup = new Group(parts[2]);
-                groups.add(targetGroup);
+                groupsService.add(targetGroup);
                 targetGroup.addAll(actionSet);
                 break;
             case "add":
@@ -187,7 +201,7 @@ public class Splitter {
                 }
                 targetGroup.removeAll(actionSet);
                 if (targetGroup.isEmpty()) {
-                    groups.remove(targetGroup);
+                    groupsService.remove(targetGroup);
                 }
         }
 
@@ -213,14 +227,14 @@ public class Splitter {
                 prefix = '+';
             }
             if (name.matches(groupNameRegexp)) {
-                Group groupItem = findGroup(name);
+                Group groupItem = groupsService.findGroup(name);
                 if (groupItem == null) {
                     System.out.println("Group " + name + " not found");
                     return null;
                 }
-                (prefix == '+' ? resultSet : skipSet).addAll(groupItem.members);
+                (prefix == '+' ? resultSet : skipSet).addAll(groupItem.getMembers());
             } else {
-                (prefix == '+' ? resultSet : skipSet).add(getPerson(name));
+                (prefix == '+' ? resultSet : skipSet).add(personsService.getPerson(name));
             }
         }
         resultSet.removeAll(skipSet);
@@ -253,13 +267,16 @@ public class Splitter {
             date = date.withDayOfMonth(date.lengthOfMonth());
         }
 
-        LocalDate finalDate = date;
         Map<PersonPair, BigDecimal> balanceMap = new HashMap<>();
 
-        payments.stream()
-                .filter(p -> !p.date.isAfter(finalDate))
-                .forEach(payment -> balanceMap.compute(new PersonPair(payment.pair),
-                        (k, v) -> v == null ? payment.amount : payment.amount.add(v)));
+        paymentsService.balance(date)
+                .forEach(payment -> balanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
+                        (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
+
+//        payments.stream()
+//                .filter(p -> !p.getDate().isAfter(finalDate))
+//                .forEach(payment -> balanceMap.compute(new PersonPair(payment.getPair()),
+//                        (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
 
         for (Map.Entry<PersonPair, BigDecimal> entry: balanceMap.entrySet()) {
             if (entry.getValue().compareTo(BigDecimal.ZERO) < 0) {
@@ -277,8 +294,8 @@ public class Splitter {
                     .filter(entry -> entry.getValue().compareTo(BigDecimal.ZERO) != 0)
                     .sorted(Map.Entry.comparingByKey())
                     .forEachOrdered(es -> System.out.println(es.getValue().compareTo(BigDecimal.ZERO) > 0 ?
-                            es.getKey().receiver.toString() + " owes " + es.getKey().sender + " " + es.getValue().setScale(2, RoundingMode.CEILING) :
-                            es.getKey().sender + " owes " + es.getKey().receiver + " " + es.getValue().negate().setScale(2, RoundingMode.CEILING)));
+                            es.getKey().getReceiver().toString() + " owes " + es.getKey().getSender() + " " + es.getValue().setScale(2, RoundingMode.CEILING) :
+                            es.getKey().getSender() + " owes " + es.getKey().getReceiver() + " " + es.getValue().negate().setScale(2, RoundingMode.CEILING)));
         }
         return Result.OK;
     }
@@ -323,13 +340,13 @@ public class Splitter {
             return Result.ILLEGAL_ARGUMENT;
         }
 
-        Person person1 = getPerson(parts[personIndex]);
-        Person person2 = getPerson(parts[personIndex + 1]);
+        Person person1 = personsService.getPerson(parts[personIndex]);
+        Person person2 = personsService.getPerson(parts[personIndex + 1]);
 
         if (direction == Direction.BORROW) {
-            payments.add(new Payment(date, person2, person1, amount));
+            paymentsService.add(new Payment(date, person2, person1, amount));
         } else {
-            payments.add(new Payment(date, person1, person2, amount));
+            paymentsService.add(new Payment(date, person1, person2, amount));
         }
 
         return Result.OK;
@@ -339,22 +356,22 @@ public class Splitter {
         return createPayment(command, Direction.BORROW);
     }
 
-    private Person findPerson(String name) {
-        Optional<Person> result = persons.stream()
-                .filter(person -> person.name.equals(name))
-                .findAny();
-        return result.orElse(null);
-    }
+//    private Person findPerson(String name) {
+//        Optional<Person> result = persons.stream()
+//                .filter(person -> person.name.equals(name))
+//                .findAny();
+//        return result.orElse(null);
+//    }
 
-    private Person getPerson(String name) {
-        Person result = findPerson(name);
-        if (result == null) {
-            Person person = new Person(name);
-            persons.add(person);
-            return person;
-        }
-        return result;
-    }
+//    private Person getPerson(String name) {
+//        Person result = findPerson(name);
+//        if (result == null) {
+//            Person person = new Person(name);
+//            persons.add(person);
+//            return person;
+//        }
+//        return result;
+//    }
 
     private void help() {
         System.out.println("balance\n" +
