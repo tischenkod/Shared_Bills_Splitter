@@ -94,11 +94,10 @@ public class Splitter {
     }
 
     private Result secretSanta(String command) {
-        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
         if (!command.matches(secretSantaRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
-        Group toGift = groupsService.findGroup(command.split(" ")[1]);
+        Group toGift = groupsService.findGroup(command.replaceAll(" {2}", " ").trim().split(" ")[1]);
         if (toGift == null) {
             System.out.println("Unknown group");
         } else {
@@ -113,27 +112,6 @@ public class Splitter {
                 prev = item;
             }
             giftPairs.add(new PersonPair(prev, members.get(0)));
-//            while (!members.isEmpty()) {
-//                switch (members.size()) {
-//                    case 1:
-//                        giftPairs.add(new PersonPair(members.get(0), members.get(0)));
-//                        members.clear();
-//                        break;
-//                    case 2:
-//                        giftPairs.add(new PersonPair(members.get(0), members.get(1)));
-//                        giftPairs.add(new PersonPair(members.get(1), members.get(0)));
-//                        members.clear();
-//                        break;
-//                    case 3:
-//                        giftPairs.add(new PersonPair(members.get(0), members.get(1)));
-//                        giftPairs.add(new PersonPair(members.get(1), members.get(2)));
-//                        giftPairs.add(new PersonPair(members.get(2), members.get(0)));
-//                        members.clear();
-//                        break;
-//                    default:
-//
-//                }
-//            }
             giftPairs.forEach(item -> System.out.println(item.getSender() + " gift to " + item.getReceiver()));
         }
         return Result.OK;
@@ -285,11 +263,6 @@ public class Splitter {
         paymentsService.balance(date)
                 .forEach(payment -> balanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
                         (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
-
-//        payments.stream()
-//                .filter(p -> !p.getDate().isAfter(finalDate))
-//                .forEach(payment -> balanceMap.compute(new PersonPair(payment.getPair()),
-//                        (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
 
         for (Map.Entry<PersonPair, BigDecimal> entry: balanceMap.entrySet()) {
             if (entry.getValue().compareTo(BigDecimal.ZERO) < 0) {
