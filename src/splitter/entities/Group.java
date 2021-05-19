@@ -15,7 +15,7 @@ public class Group implements Iterable<Person>{
     @Column(name = "group_name")
     String name;
 
-    @ManyToMany
+    @ManyToMany(fetch=FetchType.EAGER)
     @JoinTable(name = "membership",
             joinColumns = @JoinColumn(name = "group_id"),
             inverseJoinColumns = @JoinColumn(name = "person_id"))

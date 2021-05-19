@@ -24,4 +24,9 @@ public class PaymentServiceImpl implements PaymentService {
     public List<PaymentSummary> balance(LocalDate date) {
         return paymentRepository.balance(date);
     }
+
+    @Override
+    public void writeOff(LocalDate date) {
+        paymentRepository.deleteByDateLessThanEqual(date);
+    }
 }

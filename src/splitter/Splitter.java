@@ -19,14 +19,17 @@ import java.util.*;
 @Component
 public class Splitter {
     private static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
-    private static final String borrowRegexp = dateRegexp + "borrow [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
-    private static final String repayRegexp = dateRegexp + "repay [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
+    private static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
     private static final String balanceRegexp = dateRegexp + "balance( (open|close))?";
     private static final String groupNameRegexp = "[A-Z]+";
-    private static final String groupItemRegexp = "[+-]?[a-zA-Z]+";
-    private static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + " \\(" + groupItemRegexp + "(, " + groupItemRegexp + ")*\\)";
+    private static final String actionItemRegexp = "[+-]?[a-zA-Z]+";
+    private static final String actionItemsRegexp = " \\(" + actionItemRegexp + "(,\\s*" + actionItemRegexp + ")*\\)";
+    private static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + actionItemsRegexp;
     private static final String groupShowRegexp = "group show " + groupNameRegexp;
-    private static final String purchaseRegexp = dateRegexp + "purchase [a-zA-Z]+ [a-zA-Z]+ [1-9]\\d*(.\\d+)? \\(" + groupItemRegexp + "(, " + groupItemRegexp + ")*\\)";
+    private static final String groupPaymentRegexp = dateRegexp
+            + "(purchase|cashBack) [a-zA-Z]+ [a-zA-Z]+ [1-9]\\d*(.\\d+)?" + actionItemsRegexp;
+    private static final String writeOffRegexp = dateRegexp + "writeOff";
+    private static final String secretSantaRegexp = "secretSanta " + groupNameRegexp;
 
     @Autowired
     PaymentService paymentsService;
@@ -36,7 +39,6 @@ public class Splitter {
 
     @Autowired
     GroupService groupsService;
-
 
     public Splitter() {
     }
@@ -79,7 +81,86 @@ public class Splitter {
         if (command.contains("purchase")) {
             return purchase(command);
         }
+        if (command.contains("cashBack")) {
+            return cashback(command);
+        }
+        if (command.contains("writeOff")) {
+            return writeOff(command);
+        }
+        if (command.contains("secretSanta")) {
+            return secretSanta(command);
+        }
         return Result.UNKNOWN_COMMAND;
+    }
+
+    private Result secretSanta(String command) {
+        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+        if (!command.matches(secretSantaRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+        Group toGift = groupsService.findGroup(command.split(" ")[1]);
+        if (toGift == null) {
+            System.out.println("Unknown group");
+        } else {
+            List<Person> members = new LinkedList<>(toGift.getMembers());
+            Collections.shuffle(members);
+            Set<PersonPair> giftPairs = new TreeSet<>();
+            Person prev = null;
+            for (Person item: members) {
+                if (prev != null) {
+                    giftPairs.add(new PersonPair(prev, item));
+                }
+                prev = item;
+            }
+            giftPairs.add(new PersonPair(prev, members.get(0)));
+//            while (!members.isEmpty()) {
+//                switch (members.size()) {
+//                    case 1:
+//                        giftPairs.add(new PersonPair(members.get(0), members.get(0)));
+//                        members.clear();
+//                        break;
+//                    case 2:
+//                        giftPairs.add(new PersonPair(members.get(0), members.get(1)));
+//                        giftPairs.add(new PersonPair(members.get(1), members.get(0)));
+//                        members.clear();
+//                        break;
+//                    case 3:
+//                        giftPairs.add(new PersonPair(members.get(0), members.get(1)));
+//                        giftPairs.add(new PersonPair(members.get(1), members.get(2)));
+//                        giftPairs.add(new PersonPair(members.get(2), members.get(0)));
+//                        members.clear();
+//                        break;
+//                    default:
+//
+//                }
+//            }
+            giftPairs.forEach(item -> System.out.println(item.getSender() + " gift to " + item.getReceiver()));
+        }
+        return Result.OK;
+    }
+
+    private Result writeOff(String command) {
+        if (!command.matches(writeOffRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+
+        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+
+        LocalDate date;
+
+        if (parts[0].equals("writeOff")) {
+            date = LocalDate.now();
+        } else {
+            try {
+                date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
+            } catch (Exception e) {
+                return Result.ILLEGAL_ARGUMENT;
+            }
+        }
+
+        paymentsService.writeOff(date);
+
+        return Result.OK;
     }
 
     private Result groupShow(String command) {
@@ -95,80 +176,11 @@ public class Splitter {
         return Result.OK;
     }
 
-    private Result purchase(String command) {
-        if (!command.matches(purchaseRegexp)) {
-            return Result.ILLEGAL_ARGUMENT;
-        }
-        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
-
-        LocalDate date;
-        int payerPos;
-
-        if (parts[1].equals("purchase")) {
-            payerPos = 2;
-            try {
-                date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
-            } catch (Exception e) {
-                return Result.ILLEGAL_ARGUMENT;
-            }
-        } else {
-            payerPos = 1;
-            date = LocalDate.now();
-        }
-        Person payer = personsService.getPerson(parts[payerPos]);
-//                getPerson(parts[payerPos]);
-
-        BigDecimal amount;
-        try {
-            amount = new BigDecimal(parts[payerPos + 2]).setScale(2, RoundingMode.DOWN);
-            if (amount.equals(BigDecimal.ZERO)) {
-                return Result.ILLEGAL_ARGUMENT;
-            }
-        } catch (Exception e) {
-            return Result.ILLEGAL_ARGUMENT;
-        }
-
-        Set<Person> targetSet = toActionSet(Arrays.copyOfRange(parts, payerPos + 3, parts.length));
-        if (targetSet == null) {
-            return Result.OK;
-        }
-
-        BigDecimal divisor = new BigDecimal(targetSet.size());
-        targetSet.remove(payer);
-        BigDecimal sumPerPerson = amount.divide(divisor, RoundingMode.DOWN);
-        BigDecimal remainder = amount.subtract(sumPerPerson.multiply(divisor));
-
-        final BigDecimal oneCent = new BigDecimal("0.01");
-
-        for (Person member: targetSet) {
-            if (!payer.equals(member)) {
-                if (remainder.compareTo(BigDecimal.ZERO) == 0){
-                    paymentsService.add(new Payment(date, payer, member, sumPerPerson));
-                } else {
-                    remainder = remainder.subtract(oneCent);
-                    paymentsService.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
-                }
-
-            }
-        }
-
-        return Result.OK;
-    }
-
-//    private Group findGroup(String name) {
-//        for (Group group: groups) {
-//            if (group.name.equals(name)) {
-//                return group;
-//            }
-//        }
-//        return null;
-//    }
-
     private Result groupModify(String command) {
         if (!command.matches(groupModRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
-        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+        String[] parts = command.replaceAll(",", ", ").replaceAll(" {2}", " ").trim().split(" ");
         Group targetGroup;
         targetGroup = groupsService.findGroup(parts[2]);
 
@@ -180,12 +192,11 @@ public class Splitter {
         switch (parts[1]) {
             case "create":
                 if (targetGroup != null) {
-                    System.out.println("Group " + parts[2] + " already exists");
-                    return Result.OK;
+                    groupsService.remove(targetGroup);
                 }
                 targetGroup = new Group(parts[2]);
-                groupsService.add(targetGroup);
                 targetGroup.addAll(actionSet);
+                groupsService.save(targetGroup);
                 break;
             case "add":
                 if (targetGroup == null) {
@@ -193,6 +204,7 @@ public class Splitter {
                     return Result.OK;
                 }
                 targetGroup.addAll(actionSet);
+                groupsService.save(targetGroup);
                 break;
             case "remove":
                 if (targetGroup == null) {
@@ -203,6 +215,7 @@ public class Splitter {
                 if (targetGroup.isEmpty()) {
                     groupsService.remove(targetGroup);
                 }
+                groupsService.save(targetGroup);
         }
 
 
@@ -300,12 +313,16 @@ public class Splitter {
         return Result.OK;
     }
 
-    private Result repay(String command) {
-        return createPayment(command, Direction.REPLAY);
+    private Result borrow(String command) {
+        return createPayment(command, PaymentDirection.BORROW);
     }
 
-    private Result createPayment(String command, Direction direction) {
-        if (!command.matches(borrowRegexp) && !command.matches(repayRegexp)) {
+    private Result repay(String command) {
+        return createPayment(command, PaymentDirection.REPAY);
+    }
+
+    private Result createPayment(String command, PaymentDirection paymentDirection) {
+        if (!command.matches(paymentRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
 
@@ -314,7 +331,7 @@ public class Splitter {
         int personIndex;
         LocalDate date;
 
-        if (parts[1].equals(direction.delimiter)) {
+        if (parts[1].equals(paymentDirection.delimiter)) {
             personIndex = 2;
             try {
                 date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
@@ -343,7 +360,7 @@ public class Splitter {
         Person person1 = personsService.getPerson(parts[personIndex]);
         Person person2 = personsService.getPerson(parts[personIndex + 1]);
 
-        if (direction == Direction.BORROW) {
+        if (paymentDirection == PaymentDirection.BORROW) {
             paymentsService.add(new Payment(date, person2, person1, amount));
         } else {
             paymentsService.add(new Payment(date, person1, person2, amount));
@@ -352,26 +369,79 @@ public class Splitter {
         return Result.OK;
     }
 
-    private Result borrow(String command) {
-        return createPayment(command, Direction.BORROW);
+    private Result purchase(String command) {
+        return createGroupPayment(command, GroupPaymentDirection.PURCHASE);
     }
 
-//    private Person findPerson(String name) {
-//        Optional<Person> result = persons.stream()
-//                .filter(person -> person.name.equals(name))
-//                .findAny();
-//        return result.orElse(null);
-//    }
+    private Result cashback(String command) {
+        return createGroupPayment(command, GroupPaymentDirection.CASHBACK);
+    }
 
-//    private Person getPerson(String name) {
-//        Person result = findPerson(name);
-//        if (result == null) {
-//            Person person = new Person(name);
-//            persons.add(person);
-//            return person;
-//        }
-//        return result;
-//    }
+    private Result createGroupPayment(String command, GroupPaymentDirection paymentDirection) {
+        if (!command.matches(groupPaymentRegexp)) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+        String[] parts = command.replaceAll(",", ", ").replaceAll(" {2}", " ").trim().split(" ");
+
+        LocalDate date;
+        int payerPos;
+
+        if (parts[1].equals(paymentDirection.delimiter)) {
+            payerPos = 2;
+            try {
+                date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
+            } catch (Exception e) {
+                return Result.ILLEGAL_ARGUMENT;
+            }
+        } else {
+            payerPos = 1;
+            date = LocalDate.now();
+        }
+        Person payer = personsService.getPerson(parts[payerPos]);
+
+        BigDecimal amount;
+        try {
+            amount = new BigDecimal(parts[payerPos + 2]).setScale(2, RoundingMode.DOWN);
+            if (amount.equals(BigDecimal.ZERO)) {
+                return Result.ILLEGAL_ARGUMENT;
+            }
+        } catch (Exception e) {
+            return Result.ILLEGAL_ARGUMENT;
+        }
+
+        final BigDecimal oneCent;
+
+        if (paymentDirection == GroupPaymentDirection.CASHBACK) {
+            amount = amount.negate();
+            oneCent = new BigDecimal("-0.01");
+        } else {
+            oneCent = new BigDecimal("0.01");
+        }
+
+        Set<Person> targetSet = toActionSet(Arrays.copyOfRange(parts, payerPos + 3, parts.length));
+        if (targetSet == null) {
+            return Result.OK;
+        }
+
+        BigDecimal divisor = new BigDecimal(targetSet.size());
+        targetSet.remove(payer);
+        BigDecimal sumPerPerson = amount.divide(divisor, RoundingMode.DOWN);
+        BigDecimal remainder = amount.subtract(sumPerPerson.multiply(divisor));
+
+        for (Person member: targetSet) {
+            if (remainder.compareTo(BigDecimal.ZERO) == 0){
+                paymentsService.add(new Payment(date, payer, member, sumPerPerson));
+            } else {
+                remainder = remainder.subtract(oneCent);
+                paymentsService.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
+            }
+
+        }
+
+        return Result.OK;
+    }
+
+
 
     private void help() {
         System.out.println("balance\n" +

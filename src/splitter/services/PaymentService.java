@@ -10,4 +10,6 @@ public interface PaymentService {
     void add(Payment payment);
 
     List<PaymentSummary> balance(LocalDate date);
+
+    void writeOff(LocalDate date);
 }

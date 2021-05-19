@@ -1,12 +1,12 @@
 package splitter;
 
-public enum Direction {
+public enum PaymentDirection {
     BORROW("borrow"),
-    REPLAY("repay");
+    REPAY("repay");
 
     String delimiter;
 
-    Direction(String delimiter) {
+    PaymentDirection(String delimiter) {
         this.delimiter = delimiter;
     }
 }
