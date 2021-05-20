@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-public class SharedBillsSplitterTestStage4 extends StageTest {
+public class SharedBillsSplitterTestStage5 extends StageTest {
 
     static {
         InfiniteLoopDetector.setWorking(false);
@@ -36,10 +36,11 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
     private static final String GROUP_PERSONS_FEEDBACK = "Persons in group should be printed line by line sorted in ascending order";
     private static final String BALANCE_OWES_FEEDBACK = "Owes should be sorted by Person who owes and Person whom owes";
     private static final String WRITE_OFF_FEEDBACK = "WriteOff should remove from storage all money operations till command date";
+    public static final String FILTERED_BALANCE_FEEDBACK = "Program should output balance result for persons who contains if filter. However owes values should be the same as if balance were unfiltered.";
 
     private final String databasePath;
 
-    public SharedBillsSplitterTestStage4() {
+    public SharedBillsSplitterTestStage5() {
         databasePath = "../testDB" + ".mv.db";
     }
 
@@ -177,22 +178,19 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                         main.start();
                         String groupResult = main.execute("group show TEAM");
                         if (!equalsByLines(groupResult, concatLines("Ann", "Bob", "Diana", "Elon"))) {
-                            return CheckResult.wrong(GROUP_PERSONS_FEEDBACK +
-                                ". Also person and group should be stored in database");
+                            return CheckResult.wrong(GROUP_PERSONS_FEEDBACK + ". Also person and group should be stored in database");
                         }
                         String balanceResult = main.execute("balance close");
                         if (!equalsByLines(balanceResult, "Ann owes Elon 1.20\n" +
                                 "Bob owes Ann 3.96\n" +
                                 "Bob owes Elon 1.20\n" +
                                 "Diana owes Elon 1.20")) {
-                            return CheckResult.wrong(BALANCE_OWES_FEEDBACK +
-                                " Also all payment operations should be stored in database");
+                            return CheckResult.wrong(BALANCE_OWES_FEEDBACK + " Also all payment operations should be stored in database");
                         }
                         main.execute("exit");
                     }
                     return CheckResult.correct();
                 }),
-
                 new SimpleTestCase(
                         concatLines("writeOff",
                                 "2020.09.30 borrow Ann Bob 20.10",
@@ -248,9 +246,7 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                             continue;
                         }
                         Commands command;
-                        BigDecimal amount = new BigDecimal(String.format(
-                            "%d.%d", random.nextInt(200), random.nextInt(99)));
-
+                        BigDecimal amount = new BigDecimal(String.format("%d.%d", random.nextInt(200), random.nextInt(99)));
                         if (random.nextBoolean()) {
                             command = Commands.borrow;
                             if (personFrom.equals(keyPerson)) {
@@ -295,13 +291,11 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                     TestedProgram main = new TestedProgram();
                     main.start();
                     if (!main.execute("group create lowerCaseText").contains(ILLEGAL_COMMAND_ARGUMENTS)) {
-                        return CheckResult.wrong(String.format(
-                            "Group name must be UPPERCASE, otherwise \"%s\" should be printed",
+                        return CheckResult.wrong(String.format("Group name must be UPPERCASE, otherwise \"%s\" should be printed",
                                 ILLEGAL_COMMAND_ARGUMENTS));
                     }
                     if (!main.execute("group show NOTFOUNDGROUP").contains(UNKNOWN_GROUP)) {
-                        return CheckResult.wrong(
-                            "It should be printed \"%s\" if the group have not been created yet");
+                        return CheckResult.wrong("It should be printed \"%s\" if the group have not been created yet");
                     }
 
                     main.execute("group create BOYS (Elon, Bob, Chuck)");
@@ -329,8 +323,7 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                     main.execute("repay Ann Bob 5.00");
                     String balanceSecond = main.execute("balance close").trim();
                     if (!balanceSecond.equals(NO_REPAYMENTS_NEED)) {
-                        return CheckResult.wrong(
-                            "If everybody owes zero, it should be printed \"No repayments need\"");
+                        return CheckResult.wrong(String.format("If everybody owes zero, it should be printed \"%s\"", NO_REPAYMENTS_NEED));
                     }
                     main.execute("exit");
                     return CheckResult.correct();
@@ -387,9 +380,7 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                             "Bob\n" +
                             "Chuck\n" +
                             "Diana")) {
-                        return CheckResult.wrong(
-                            "Program should include Bob, " +
-                                "Chuck and persons from GIRLS, also Frank should be excluded");
+                        return CheckResult.wrong("Program should include Bob, Chuck and persons from GIRLS, also Frank should be excluded");
                     }
 
                     main.execute("exit");
@@ -411,8 +402,7 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                             "Bob owes Elon 7.00\n" +
                             "Chuck owes Diana 5.22\n" +
                             "Diana owes Elon 1.78")) {
-                        return CheckResult.wrong(
-                            "Program should split flowers bill on TEAM with Elon without GIRLS");
+                        return CheckResult.wrong("Program should split flowers bill on TEAM with Elon without GIRLS");
                     }
 
                     main.execute("exit");
@@ -469,18 +459,15 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                                 receiversList.add(map.get(it[1]));
                             });
                     if (sendersList.size() != persons.size() || !isSorted(sendersList)) {
-                        return CheckResult.wrong(
-                            "Program should print persons who will gift to someone in ascending order");
+                        return CheckResult.wrong("Program should print persons who will gift to someone in ascending order");
                     }
                     for (int i = 0; i < sendersList.size(); i++) {
                         if (sendersList.get(i).equals(receiversList.get(i)) && sendersList.size() > 1) {
-                            return CheckResult.wrong(
-                                "Person should not gift a present to himself (in groups larger than 1)");
+                            return CheckResult.wrong("Person should not gift a present to himself (in groups larger than 1)");
                         }
                         Integer receiverId = receiversList.get(i);
                         if (sendersList.get(receiverId) == i && sendersList.size() > 2) {
-                            return CheckResult.wrong(
-                                "Person should not gift and receive a present from the same other person (in groups larger than 2)");
+                            return CheckResult.wrong("Person should not gift and receive a present from the same other person (in groups larger than 2)");
                         }
                     }
                     main.execute("exit");
@@ -505,7 +492,73 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
                     }
                     main.execute("exit");
                     return CheckResult.correct();
+                }),
+
+                new TestCase().setDynamicTesting(() -> {
+                    TestedProgram main = new TestedProgram();
+                    main.start();
+                    strToLinesTrimmed("" +
+                            "writeOff\n" +
+                            "group create TEAM (Ann, Bob, Chuck, Diana, Elon, Frank)\n" +
+                            "group create CAR (Diana, Elon)\n" +
+                            "group create BUS (Ann, Bob, Chuck, Frank)\n" +
+                            "purchase Chuck busTickets 5.25 (BUS, -Frank)\n" +
+                            "purchase Elon fuel 25 (CAR, Frank)\n" +
+                            "purchase Ann chocolate 2.99 (BUS, -Bob, CAR)\n" +
+                            "purchase Diana soda 5.45 (TEAM, -Ann, -Chuck)\n" +
+                            "purchase Frank bbq 29.90 (TEAM, CAR, BUS, -Frank, -Bob)\n" +
+                            "cashBack YourCompany party 12 (TEAM, BUS)\n" +
+                            "cashBack YourCompany tickets 3.50 (BUS)\n" +
+                            "borrow Frank Bob 10\n" +
+                            "repay Chuck Diana 20")
+                            .forEach(main::execute);
+                    String balanceResult = main.execute("balance close");
+                    if (!equalsByLines(balanceResult, "Ann owes Chuck 1.15\n" +
+                            "Ann owes Frank 6.89\n" +
+                            "Bob owes Chuck 1.75\n" +
+                            "Bob owes Diana 1.37\n" +
+                            "Chuck owes Frank 7.48\n" +
+                            "Diana owes Ann 0.60\n" +
+                            "Diana owes Chuck 20.00\n" +
+                            "Diana owes Elon 6.98\n" +
+                            "Diana owes Frank 6.11\n" +
+                            "Elon owes Ann 0.60\n" +
+                            "Frank owes Bob 10.00\n" +
+                            "Frank owes Elon 0.86\n" +
+                            "YourCompany owes Ann 2.88\n" +
+                            "YourCompany owes Bob 2.88\n" +
+                            "YourCompany owes Chuck 2.87\n" +
+                            "YourCompany owes Diana 2.00\n" +
+                            "YourCompany owes Elon 2.00\n" +
+                            "YourCompany owes Frank 2.87")) {
+                        return CheckResult.wrong(WRONG_CALCULATIONS);
+                    }
+                    main.execute("exit");
+                    return CheckResult.correct();
+                }),
+
+                new TestCase().setDynamicTesting(() -> {
+                    TestedProgram main = new TestedProgram();
+                    main.start();
+                    main.execute("writeOff");
+                    main.execute("group create BOBTEAM (Frank, Bob)");
+                    main.execute("purchase Ann coffee 12.00 (Chuck, Ann, Bob)");
+                    {
+                        String balanceResult = main.execute("balance close (Bob, Ann)");
+                        if (!equalsByLines(balanceResult, "Bob owes Ann 4.00")) {
+                            return CheckResult.wrong(FILTERED_BALANCE_FEEDBACK);
+                        }
+                    }
+                    {
+                        String balanceResult = main.execute("balance close (-Bob, BOBTEAM)");
+                        if (!equalsByLines(balanceResult, NO_REPAYMENTS_NEED)) {
+                            return CheckResult.wrong(String.format("Program should output \"%s\" if no one person in filter have owes", NO_REPAYMENTS_NEED));
+                        }
+                    }
+                    main.execute("exit");
+                    return CheckResult.correct();
                 })
+
 
         );
     }
@@ -536,8 +589,7 @@ public class SharedBillsSplitterTestStage4 extends StageTest {
             Commands command = Commands.valueOf(reply);
         } catch (IllegalArgumentException e) {
             if (!reply.toLowerCase().startsWith(UNKNOWN_COMMAND.toLowerCase())) {
-                return CheckResult.wrong(String.format("" +
-                    "For unknown command output should start with: %s", UNKNOWN_COMMAND));
+                return CheckResult.wrong(String.format("For unknown command output should starts with: %s", UNKNOWN_COMMAND));
             }
         }
         return CheckResult.correct();

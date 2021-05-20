@@ -15,15 +15,16 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 public class Splitter {
     private static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
-    private static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
-    private static final String balanceRegexp = dateRegexp + "balance( (open|close))?";
-    private static final String groupNameRegexp = "[A-Z]+";
     private static final String actionItemRegexp = "[+-]?[a-zA-Z]+";
     private static final String actionItemsRegexp = " \\(" + actionItemRegexp + "(,\\s*" + actionItemRegexp + ")*\\)";
+    private static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
+    private static final String balanceRegexp = dateRegexp + "balance(\\s(open|close))?(" + actionItemsRegexp + ")?";
+    private static final String groupNameRegexp = "[A-Z]+";
     private static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + actionItemsRegexp;
     private static final String groupShowRegexp = "group show " + groupNameRegexp;
     private static final String groupPaymentRegexp = dateRegexp
@@ -236,7 +237,10 @@ public class Splitter {
         if (!command.matches(balanceRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
-        String[] parts = command.replaceAll(" {2}", " ").trim().split(" ");
+        String[] parts = command.replaceAll(",", ", ")
+                .replaceAll(" {2}", " ")
+                .trim()
+                .split(" ");
 
         int openCloseIndex;
         LocalDate date;
@@ -253,14 +257,55 @@ public class Splitter {
             openCloseIndex = 1;
         }
 
-        if (parts.length == openCloseIndex || parts[openCloseIndex].equals("open")){
+        int filterIndex;
+
+        BalanceType balanceType;
+
+        if (parts.length == openCloseIndex) {
+            balanceType = BalanceType.OPEN;
+            filterIndex = openCloseIndex;
+        } else {
+            switch (parts[openCloseIndex]) {
+                case "open":
+                    balanceType = BalanceType.OPEN;
+                    filterIndex = openCloseIndex + 1;
+                    break;
+                case "close":
+                    balanceType = BalanceType.CLOSE;
+                    filterIndex = openCloseIndex + 1;
+                    break;
+                default:
+                    balanceType = BalanceType.OPEN;
+                    filterIndex = openCloseIndex;
+            }
+        }
+
+        if (balanceType == BalanceType.OPEN) {
             date = date.minusMonths(1);
             date = date.withDayOfMonth(date.lengthOfMonth());
         }
 
+        final Set<Person> filter = filterIndex == parts.length ?
+                null :
+                toActionSet(Arrays.copyOfRange(parts, filterIndex, parts.length));
+
         Map<PersonPair, BigDecimal> balanceMap = new HashMap<>();
 
+//        Set<Person> zeroOwe =
+        if (filter != null) {
+            paymentsService.balance(date)
+                    .stream()
+                    .filter(summary -> filter.contains(summary.sender) || filter.contains(summary.receiver))
+                    .collect(Collectors.toMap(PaymentSummary::getSender, PaymentSummary::getAmount, BigDecimal::add))
+                    .entrySet()
+                    .stream()
+                    .filter(entry -> entry.getValue().equals(BigDecimal.ZERO))
+                    .map(Map.Entry::getKey).forEach(filter::remove);
+        }
+
         paymentsService.balance(date)
+                .stream()
+                .filter(summary -> filter == null || filter.contains(summary.sender) || filter.contains(summary.receiver))
                 .forEach(payment -> balanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
                         (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
 
