@@ -291,11 +291,11 @@ public class Splitter {
 
         Map<PersonPair, BigDecimal> balanceMap = new HashMap<>();
 
-//        Set<Person> zeroOwe =
+        List<PaymentSummary> filteredByActionSet = paymentsService.balance(date)
+                .stream()
+                .filter(summary -> filter == null || filter.contains(summary.sender) && filter.contains(summary.receiver)).collect(Collectors.toList());
         if (filter != null) {
-            paymentsService.balance(date)
-                    .stream()
-                    .filter(summary -> filter.contains(summary.sender) || filter.contains(summary.receiver))
+            filteredByActionSet.stream()
                     .collect(Collectors.toMap(PaymentSummary::getSender, PaymentSummary::getAmount, BigDecimal::add))
                     .entrySet()
                     .stream()
@@ -303,9 +303,8 @@ public class Splitter {
                     .map(Map.Entry::getKey).forEach(filter::remove);
         }
 
-        paymentsService.balance(date)
-                .stream()
-                .filter(summary -> filter == null || filter.contains(summary.sender) || filter.contains(summary.receiver))
+        filteredByActionSet.stream()
+                .filter(summary -> filter == null || filter.contains(summary.sender) && filter.contains(summary.receiver))
                 .forEach(payment -> balanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
                         (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
 
@@ -442,16 +441,17 @@ public class Splitter {
         }
 
         BigDecimal divisor = new BigDecimal(targetSet.size());
-        targetSet.remove(payer);
         BigDecimal sumPerPerson = amount.divide(divisor, RoundingMode.DOWN);
         BigDecimal remainder = amount.subtract(sumPerPerson.multiply(divisor));
 
         for (Person member: targetSet) {
-            if (remainder.compareTo(BigDecimal.ZERO) == 0){
-                paymentsService.add(new Payment(date, payer, member, sumPerPerson));
+            if (remainder.compareTo(BigDecimal.ZERO) == 0) {
+                if (!member.equals(payer))
+                    paymentsService.add(new Payment(date, payer, member, sumPerPerson));
             } else {
                 remainder = remainder.subtract(oneCent);
-                paymentsService.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
+                if (!member.equals(payer))
+                    paymentsService.add(new Payment(date, payer, member, sumPerPerson.add(oneCent)));
             }
 
         }
