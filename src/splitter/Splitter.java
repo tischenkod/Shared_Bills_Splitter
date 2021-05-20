@@ -19,18 +19,18 @@ import java.util.stream.Collectors;
 
 @Component
 public class Splitter {
-    private static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
-    private static final String actionItemRegexp = "[+-]?[a-zA-Z]+";
-    private static final String actionItemsRegexp = " \\(" + actionItemRegexp + "(,\\s*" + actionItemRegexp + ")*\\)";
-    private static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
-    private static final String balanceRegexp = dateRegexp + "balance(\\s(open|close))?(" + actionItemsRegexp + ")?";
-    private static final String groupNameRegexp = "[A-Z]+";
-    private static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + actionItemsRegexp;
-    private static final String groupShowRegexp = "group show " + groupNameRegexp;
-    private static final String groupPaymentRegexp = dateRegexp
+    static final String dateRegexp = "(\\d{4}\\.\\d{2}\\.\\d{2} )?";
+    static final String actionItemRegexp = "[+-]?[a-zA-Z]+";
+    static final String actionItemsRegexp = " \\(" + actionItemRegexp + "(,\\s*" + actionItemRegexp + ")*\\)";
+    static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
+    static final String balanceRegexp = dateRegexp + "balance(\\s(open|close))?(" + actionItemsRegexp + ")?";
+    static final String groupNameRegexp = "[A-Z]+";
+    static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + actionItemsRegexp;
+    static final String groupShowRegexp = "group show " + groupNameRegexp;
+    static final String groupPaymentRegexp = dateRegexp
             + "(purchase|cashBack) [a-zA-Z]+ [a-zA-Z]+ [1-9]\\d*(.\\d+)?" + actionItemsRegexp;
-    private static final String writeOffRegexp = dateRegexp + "writeOff";
-    private static final String secretSantaRegexp = "secretSanta " + groupNameRegexp;
+    static final String writeOffRegexp = dateRegexp + "writeOff";
+    static final String secretSantaRegexp = "secretSanta " + groupNameRegexp;
 
     @Autowired
     PaymentService paymentsService;
@@ -47,51 +47,59 @@ public class Splitter {
     public void run() {
         Scanner scanner = new Scanner(System.in);
         while (true) {
-            String command = scanner.nextLine();
-            switch (command) {
-                case "help":
-                    help();
-                    break;
-                case "exit":
-                    return;
-                default:
-                    Result result = process(command);
-                    if (result != Result.OK) {
-                        System.out.println(result);
-                    }
+            String commandStr = scanner.nextLine();
+            Result result = null;
+            Command command = Command.recognise(commandStr);
+            if (command == null) {
+                result = Result.UNKNOWN_COMMAND;
+            } else {
+                switch (command) {
+                    case HELP:
+                        result = help();
+                        break;
+                    case EXIT:
+                        return;
+                    case BALANCE:
+                        result = balance(commandStr);
+                        break;
+                    case GROUP:
+                        result = group(commandStr);
+                        break;
+                    case REPAY:
+                        result = repay(commandStr);
+                        break;
+                    case BORROW:
+                        result = borrow(commandStr);
+                        break;
+                    case CASHBACK:
+                        result = cashback(commandStr);
+                        break;
+                    case PURCHASE:
+                        result = purchase(commandStr);
+                        break;
+                    case SECRET_SANTA:
+                        result = secretSanta(commandStr);
+                        break;
+                    case WRITE_OFF:
+                        result = writeOff(commandStr);
+                        break;
+                }
+            }
+
+            if (result != Result.OK) {
+                System.out.println(result);
             }
         }
     }
 
-    private Result process(String command) {
-        if (command.contains("borrow")) {
-            return borrow(command);
-        }
-        if (command.contains("repay")) {
-            return repay(command);
-        }
-        if (command.contains("balance")) {
-            return balance(command);
-        }
-        if (command.contains("group show")) {
+    private Result group(String command) {
+        if (command.matches(groupShowRegexp)) {
             return groupShow(command);
-        }
-        if (command.contains("group")) {
+        } else if (command.matches(groupModRegexp)) {
             return groupModify(command);
+        } else {
+            return Result.ILLEGAL_ARGUMENT;
         }
-        if (command.contains("purchase")) {
-            return purchase(command);
-        }
-        if (command.contains("cashBack")) {
-            return cashback(command);
-        }
-        if (command.contains("writeOff")) {
-            return writeOff(command);
-        }
-        if (command.contains("secretSanta")) {
-            return secretSanta(command);
-        }
-        return Result.UNKNOWN_COMMAND;
     }
 
     private Result secretSanta(String command) {
@@ -143,9 +151,6 @@ public class Splitter {
     }
 
     private Result groupShow(String command) {
-        if (!command.matches(groupShowRegexp)) {
-            return Result.ILLEGAL_ARGUMENT;
-        }
         Group toShow = groupsService.findGroup(command.split(" ")[2]);
         if (toShow == null) {
             System.out.println("Unknown group");
@@ -156,9 +161,6 @@ public class Splitter {
     }
 
     private Result groupModify(String command) {
-        if (!command.matches(groupModRegexp)) {
-            return Result.ILLEGAL_ARGUMENT;
-        }
         String[] parts = command.replaceAll(",", ", ").replaceAll(" {2}", " ").trim().split(" ");
         Group targetGroup;
         targetGroup = groupsService.findGroup(parts[2]);
@@ -459,18 +461,8 @@ public class Splitter {
         return Result.OK;
     }
 
-
-
-    private void help() {
-        System.out.println("balance\n" +
-                "borrow\n" +
-                "cashBack\n" +
-                "exit\n" +
-                "group\n" +
-                "help\n" +
-                "purchase\n" +
-                "repay\n" +
-                "secretSanta\n" +
-                "writeOff");
+    private Result help() {
+        Arrays.stream(Command.values()).map(Command::toString).sorted().forEach(System.out::println);
+        return Result.OK;
     }
 }
