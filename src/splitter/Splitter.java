@@ -1,11 +1,14 @@
 package splitter;
 
+import org.apache.commons.collections4.BidiMap;
+import org.apache.commons.collections4.bidimap.DualHashBidiMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import splitter.entities.Group;
 import splitter.entities.Payment;
 import splitter.entities.Person;
 import splitter.entities.PersonPair;
+import splitter.graph.Graph;
 import splitter.services.GroupService;
 import splitter.services.PaymentService;
 import splitter.services.PersonService;
@@ -16,6 +19,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Component
 public class Splitter {
@@ -23,7 +27,7 @@ public class Splitter {
     static final String actionItemRegexp = "[+-]?[a-zA-Z]+";
     static final String actionItemsRegexp = " \\(" + actionItemRegexp + "(,\\s*" + actionItemRegexp + ")*\\)";
     static final String paymentRegexp = dateRegexp + "(borrow|repay) [a-zA-Z]+ [a-zA-Z]+ \\d+(\\.\\d*)?";
-    static final String balanceRegexp = dateRegexp + "balance(\\s(open|close))?(" + actionItemsRegexp + ")?";
+    static final String balanceRegexp = dateRegexp + "balance(Perfect)?(\\s(open|close))?(" + actionItemsRegexp + ")?";
     static final String groupNameRegexp = "[A-Z]+";
     static final String groupModRegexp = "group (create|add|remove) " + groupNameRegexp + actionItemsRegexp;
     static final String groupShowRegexp = "group show " + groupNameRegexp;
@@ -60,7 +64,10 @@ public class Splitter {
                     case EXIT:
                         return;
                     case BALANCE:
-                        result = balance(commandStr);
+                        result = balance(commandStr, false);
+                        break;
+                    case BALANCE_PERFECT:
+                        result = balance(commandStr, true);
                         break;
                     case GROUP:
                         result = group(commandStr);
@@ -235,7 +242,7 @@ public class Splitter {
         return resultSet;
     }
 
-    private Result balance(String command) {
+    private Result balance(String command, boolean perfect) {
         if (!command.matches(balanceRegexp)) {
             return Result.ILLEGAL_ARGUMENT;
         }
@@ -247,7 +254,7 @@ public class Splitter {
         int openCloseIndex;
         LocalDate date;
 
-        if (parts.length > 1 && parts[1].equals("balance")) {
+        if (parts.length > 1 && parts[1].equals(perfect ? "balancePerfect" : "balance")) {
             openCloseIndex = 2;
             try {
                 date = LocalDate.parse(parts[0], DateTimeFormatter.ofPattern("yyyy.MM.dd"));
@@ -291,8 +298,6 @@ public class Splitter {
                 null :
                 toActionSet(Arrays.copyOfRange(parts, filterIndex, parts.length));
 
-        Map<PersonPair, BigDecimal> balanceMap = new HashMap<>();
-
         List<PaymentSummary> filteredByActionSet = paymentsService.balance(date)
                 .stream()
                 .filter(summary -> filter == null || filter.contains(summary.sender) && filter.contains(summary.receiver)).collect(Collectors.toList());
@@ -305,16 +310,40 @@ public class Splitter {
                     .map(Map.Entry::getKey).forEach(filter::remove);
         }
 
+        Map<PersonPair, BigDecimal> finalBalanceMap = new HashMap<>();
         filteredByActionSet.stream()
                 .filter(summary -> filter == null || filter.contains(summary.sender) && filter.contains(summary.receiver))
-                .forEach(payment -> balanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
+                .forEach(payment -> finalBalanceMap.compute(new PersonPair(payment.getSender(), payment.getReceiver()),
                         (k, v) -> v == null ? payment.getAmount() : payment.getAmount().add(v)));
 
-        for (Map.Entry<PersonPair, BigDecimal> entry: balanceMap.entrySet()) {
+        for (Map.Entry<PersonPair, BigDecimal> entry: finalBalanceMap.entrySet()) {
             if (entry.getValue().compareTo(BigDecimal.ZERO) < 0) {
                 entry.getKey().swap();
                 entry.setValue(entry.getValue().negate());
             }
+        }
+
+        Map<PersonPair, BigDecimal> balanceMap;
+
+        if (perfect) {
+            BidiMap<Integer, Person> index = new DualHashBidiMap<>();
+            final int[] id = {0};
+
+            finalBalanceMap.keySet()
+                    .stream()
+                    .flatMap(pair -> Stream.of(pair.getSender(), pair.getReceiver()))
+                    .distinct()
+                    .forEach(person -> index.put(id[0]++, person));
+            Graph graph = new Graph(id[0]);
+            finalBalanceMap.forEach((key, value) -> graph.addEdge(
+                    index.getKey(key.getSender()),
+                    index.getKey(key.getReceiver()),
+                    value));
+            graph.optimize();
+
+            balanceMap = graph.toMap((a, b) -> new PersonPair(index.get(a), index.get(b)));
+        } else {
+            balanceMap = finalBalanceMap;
         }
 
         if (balanceMap.entrySet()

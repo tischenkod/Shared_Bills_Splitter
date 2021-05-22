@@ -21,4 +21,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
     implementation group: 'org.springframework.boot', name: 'spring-boot-starter-validation'
     compile("org.springframework.boot:spring-boot-starter-web")
+
+    // https://mvnrepository.com/artifact/org.apache.commons/commons-collections4
+    implementation group: 'org.apache.commons', name: 'commons-collections4', version: '4.0'
+
 }

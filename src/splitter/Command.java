@@ -1,7 +1,8 @@
 package splitter;
 
 public enum Command {
-    BALANCE("balance", "balance"),
+    BALANCE("balance", "balance(\\s|$)"),
+    BALANCE_PERFECT("balancePerfect", "balancePerfect(\\s|$)"),
     BORROW("borrow", "borrow"),
     CASHBACK("cashBack", "cashBack"),
     EXIT("exit", "exit"),
